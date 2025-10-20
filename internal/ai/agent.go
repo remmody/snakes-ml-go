@@ -1,58 +1,62 @@
 package ai
 
-import "math/rand/v2"
+import (
+	"math/rand/v2"
+	"snakes-ml/config"
+)
 
-// Agent представляет DQN агента с системой поколений
+// Agent represents DQN agent with generation system
 type Agent struct {
-	qNetwork         *Network
-	targetNetwork    *Network
-	replayBuffer     *ReplayBuffer
-	epsilon          float64
-	epsilonMin       float64
-	epsilonDecay     float64
-	gamma            float64
-	batchSize        int
-	updateFreq       int
-	stepCount        int
-	episodeCount     int          // ✅ НОВОЕ: счетчик эпизодов
-	generationSize   int          // ✅ НОВОЕ: размер поколения
-	currentGeneration int         // ✅ НОВОЕ: текущее поколение
-	totalReward      float64      // ✅ НОВОЕ: накопленная награда
-	episodeRewards   []float64    // ✅ НОВОЕ: награды эпизодов
+	qNetwork          *Network
+	targetNetwork     *Network
+	replayBuffer      *ReplayBuffer
+	epsilon           float64
+	epsilonMin        float64
+	epsilonDecay      float64
+	gamma             float64
+	batchSize         int
+	updateFreq        int
+	stepCount         int
+	episodeCount      int
+	generationSize    int
+	currentGeneration int
+	totalReward       float64
+	episodeRewards    []float64
 }
 
-// NewAgent создает нового DQN агента
-func NewAgent(stateSize, actionSize int, config Config) *Agent {
-	layers := []int{stateSize, 128, 128, actionSize}
+// NewAgent creates new DQN agent using configuration
+func NewAgent(stateSize, actionSize int, cfg Config) *Agent {
+	layers := config.GetNeuralLayers()
 
 	return &Agent{
-		qNetwork:         NewNetwork(layers, config.LearningRate),
-		targetNetwork:    NewNetwork(layers, config.LearningRate),
-		replayBuffer:     NewReplayBuffer(config.BufferSize),
-		epsilon:          config.EpsilonStart,
-		epsilonMin:       config.EpsilonMin,
-		epsilonDecay:     config.EpsilonDecay,
-		gamma:            config.Gamma,
-		batchSize:        config.BatchSize,
-		updateFreq:       config.UpdateFreq,
-		stepCount:        0,
-		episodeCount:     0,
-		generationSize:   100,        // ✅ 100 эпизодов = 1 поколение
+		qNetwork:          NewNetwork(layers, cfg.LearningRate),
+		targetNetwork:     NewNetwork(layers, cfg.LearningRate),
+		replayBuffer:      NewReplayBuffer(cfg.BufferSize),
+		epsilon:           cfg.EpsilonStart,
+		epsilonMin:        cfg.EpsilonMin,
+		epsilonDecay:      cfg.EpsilonDecay,
+		gamma:             cfg.Gamma,
+		batchSize:         cfg.BatchSize,
+		updateFreq:        cfg.UpdateFreq,
+		stepCount:         0,
+		episodeCount:      0,
+		generationSize:    config.EpisodesPerGen,
 		currentGeneration: 1,
-		episodeRewards:   make([]float64, 0, 100),
+		episodeRewards:    make([]float64, 0, 100),
 	}
 }
 
-// SelectAction выбирает действие используя epsilon-greedy стратегию
+// SelectAction chooses action using epsilon-greedy strategy
 func (a *Agent) SelectAction(state []float64) int {
 	if rand.Float64() < a.epsilon {
-		return rand.IntN(4)
+		return rand.IntN(config.ActionSize)
 	}
 
 	qValues := a.qNetwork.Forward(state)
 	return argmax(qValues)
 }
 
+// argmax returns index of maximum value
 func argmax(values []float64) int {
 	if len(values) == 0 {
 		return 0
@@ -71,7 +75,7 @@ func argmax(values []float64) int {
 	return maxIdx
 }
 
-// Remember сохраняет опыт в replay buffer
+// Remember stores experience in replay buffer
 func (a *Agent) Remember(state []float64, action int, reward float64, nextState []float64, done bool) {
 	a.replayBuffer.Add(Experience{
 		State:     state,
@@ -80,12 +84,12 @@ func (a *Agent) Remember(state []float64, action int, reward float64, nextState 
 		NextState: nextState,
 		Done:      done,
 	})
-	
-	// ✅ НОВОЕ: накапливаем награду эпизода
+
+	// Accumulate episode reward
 	a.totalReward += reward
 }
 
-// Train выполняет один шаг обучения
+// Train performs one training step using experience replay
 func (a *Agent) Train() float64 {
 	if a.replayBuffer.Size() < a.batchSize {
 		return 0
@@ -100,6 +104,7 @@ func (a *Agent) Train() float64 {
 		if exp.Done {
 			target[exp.Action] = exp.Reward
 		} else {
+			// Double DQN: use q-network to select action, target-network to evaluate
 			nextQValues := a.targetNetwork.Forward(exp.NextState)
 			bestAction := argmax(a.qNetwork.Forward(exp.NextState))
 			maxQ := nextQValues[bestAction]
@@ -115,7 +120,7 @@ func (a *Agent) Train() float64 {
 		a.UpdateTargetNetwork()
 	}
 
-	// ✅ ИСПРАВЛЕНО: Epsilon decay после каждого обучения, а не после эпизода
+	// Epsilon decay during training
 	if a.epsilon > a.epsilonMin {
 		a.epsilon *= a.epsilonDecay
 	}
@@ -123,60 +128,60 @@ func (a *Agent) Train() float64 {
 	return totalLoss / float64(len(batch))
 }
 
-// ✅ НОВОЕ: EndEpisode вызывается в конце каждого эпизода
+// EndEpisode marks end of episode and updates generation counter
 func (a *Agent) EndEpisode() {
 	a.episodeCount++
 	a.episodeRewards = append(a.episodeRewards, a.totalReward)
-	
-	// Ограничиваем хранение наград последними 100 эпизодами
+
+	// Keep only last 100 episode rewards
 	if len(a.episodeRewards) > 100 {
 		a.episodeRewards = a.episodeRewards[1:]
 	}
-	
-	// Сброс накопленной награды
+
+	// Reset accumulated reward
 	a.totalReward = 0
-	
-	// Проверка смены поколения
+
+	// Check generation change
 	if a.episodeCount%a.generationSize == 0 {
 		a.currentGeneration++
 	}
 }
 
-// ✅ НОВОЕ: GetAverageReward возвращает среднюю награду за последние эпизоды
+// GetAverageReward returns average reward over last N episodes
 func (a *Agent) GetAverageReward(window int) float64 {
 	if len(a.episodeRewards) == 0 {
 		return 0
 	}
-	
+
 	start := 0
 	if len(a.episodeRewards) > window {
 		start = len(a.episodeRewards) - window
 	}
-	
+
 	sum := 0.0
 	count := 0
 	for i := start; i < len(a.episodeRewards); i++ {
 		sum += a.episodeRewards[i]
 		count++
 	}
-	
+
 	if count == 0 {
 		return 0
 	}
 	return sum / float64(count)
 }
 
-// UpdateTargetNetwork обновляет target network
+// UpdateTargetNetwork copies weights from q-network to target-network
 func (a *Agent) UpdateTargetNetwork() {
 	a.targetNetwork = a.qNetwork.Clone()
 }
 
-// SaveModel сохраняет модель в файл
+// SaveModel saves neural network to file
 func (a *Agent) SaveModel(filename string) error {
 	return a.qNetwork.SaveToFile(filename)
 }
 
-// LoadModel загружает модель из файла
+// LoadModel loads neural network from file
 func (a *Agent) LoadModel(filename string) error {
 	err := a.qNetwork.LoadFromFile(filename)
 	if err == nil {
@@ -185,7 +190,7 @@ func (a *Agent) LoadModel(filename string) error {
 	return err
 }
 
-// Геттеры
+// Getters
 func (a *Agent) Epsilon() float64           { return a.epsilon }
 func (a *Agent) SetEpsilon(epsilon float64) { a.epsilon = epsilon }
 func (a *Agent) ReplayBufferSize() int      { return a.replayBuffer.Size() }

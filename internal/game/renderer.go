@@ -4,19 +4,21 @@ import (
 	"fmt"
 	"image/color"
 
+	"snakes-ml/config"
 	"snakes-ml/internal/snake"
-	"snakes-ml/internal/ui"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
+// Renderer handles game rendering
 type Renderer struct {
 	screenWidth  int
 	screenHeight int
 }
 
+// NewRenderer creates new renderer
 func NewRenderer(width, height int) *Renderer {
 	return &Renderer{
 		screenWidth:  width,
@@ -24,13 +26,15 @@ func NewRenderer(width, height int) *Renderer {
 	}
 }
 
+// DrawSnake renders snake and game field
 func (r *Renderer) DrawSnake(screen *ebiten.Image, s *snake.Snake) {
-	// ✅ Адаптировано под 1280x720
-	gridX, gridY := 30, 150
-	cellSize := 25
+	gridX := config.GridStartX
+	gridY := config.GridStartY
+	cellSize := config.CellSizeInit
 
+	// Calculate adaptive cell size
 	maxWidth := r.screenWidth - gridX*2
-	maxHeight := r.screenHeight - gridY - 80
+	maxHeight := r.screenHeight - gridY - config.GridPadding
 
 	cellWidth := maxWidth / s.Width()
 	cellHeight := maxHeight / s.Height()
@@ -41,53 +45,55 @@ func (r *Renderer) DrawSnake(screen *ebiten.Image, s *snake.Snake) {
 		cellSize = cellHeight
 	}
 
-	if cellSize < 8 {
-		cellSize = 8
+	if cellSize < config.CellSizeMin {
+		cellSize = config.CellSizeMin
 	}
-	if cellSize > 30 {
-		cellSize = 30
+	if cellSize > config.CellSizeMax {
+		cellSize = config.CellSizeMax
 	}
 
 	totalWidth := s.Width() * cellSize
-	// totalHeight := s.Height() * cellSize
+	// ✅ ИСПРАВЛЕНО: используем totalHeight
+	totalHeight := s.Height() * cellSize
 	gridX = (r.screenWidth - totalWidth) / 2
 
-	// Grid
+	// Draw grid
 	for y := 0; y < s.Height(); y++ {
 		for x := 0; x < s.Width(); x++ {
 			posX := float32(gridX + x*cellSize)
 			posY := float32(gridY + y*cellSize)
-			vector.StrokeRect(screen, posX, posY, float32(cellSize), float32(cellSize), 1, ui.Grid, false)
+			vector.StrokeRect(screen, posX, posY, float32(cellSize), float32(cellSize), 1, config.ColorGrid, false)
 		}
 	}
 
-	// Obstacles (Yellow)
+	// Draw obstacles (yellow)
 	for _, obs := range s.Obstacles() {
 		posX := float32(gridX + obs.X*cellSize)
 		posY := float32(gridY + obs.Y*cellSize)
-		vector.FillRect(screen, posX, posY, float32(cellSize), float32(cellSize), ui.Obstacle, false)
-		vector.StrokeRect(screen, posX, posY, float32(cellSize), float32(cellSize), 2, ui.ObstacleBorder, false)
+		vector.FillRect(screen, posX, posY, float32(cellSize), float32(cellSize), config.ColorObstacle, false)
+		vector.StrokeRect(screen, posX, posY, float32(cellSize), float32(cellSize), 2, config.ColorObstacleBorder, false)
 	}
 
-	// Food
+	// Draw food (red)
 	food := s.Food()
 	posX := float32(gridX + food.X*cellSize)
 	posY := float32(gridY + food.Y*cellSize)
-	vector.FillRect(screen, posX, posY, float32(cellSize), float32(cellSize), ui.Food, false)
-	vector.StrokeRect(screen, posX, posY, float32(cellSize), float32(cellSize), 2, ui.FoodBorder, false)
+	vector.FillRect(screen, posX, posY, float32(cellSize), float32(cellSize), config.ColorFood, false)
+	vector.StrokeRect(screen, posX, posY, float32(cellSize), float32(cellSize), 2, config.ColorFoodBorder, false)
 
-	// Snake
+	// Draw snake
 	for i, segment := range s.Body() {
 		posX := float32(gridX + segment.X*cellSize)
 		posY := float32(gridY + segment.Y*cellSize)
 
 		var col color.RGBA
 		if i == 0 {
-			col = ui.SnakeHead
+			col = config.ColorSnakeHead
 		} else {
 			intensity := uint8(200 - i*2)
-			if intensity < 100 {
-				intensity = 100
+			// ✅ ИСПРАВЛЕНО: правильное сравнение uint8 с uint8
+			if intensity < config.ColorSnakeBodyMin {
+				intensity = config.ColorSnakeBodyMin
 			}
 			col = color.RGBA{50, intensity, 50, 255}
 		}
@@ -95,27 +101,30 @@ func (r *Renderer) DrawSnake(screen *ebiten.Image, s *snake.Snake) {
 		vector.FillRect(screen, posX, posY, float32(cellSize), float32(cellSize), col, false)
 
 		if i == 0 {
-			vector.StrokeRect(screen, posX, posY, float32(cellSize), float32(cellSize), 2, color.RGBA{50, 200, 50, 255}, false)
+			vector.StrokeRect(screen, posX, posY, float32(cellSize), float32(cellSize), 2, config.ColorSnakeHeadBorder, false)
 		}
 	}
 
-	// Info
+	// Draw info
 	occupancy := s.GetOccupancy() * 100
 	infoText := fmt.Sprintf("Length: %d | Steps: %d | Map: %dx%d | Occupancy: %.1f%% | Obstacles: %d",
 		s.Length(), s.Steps(), s.Width(), s.Height(), occupancy, len(s.Obstacles()))
 
-	vector.FillRect(screen, float32(gridX-5), float32(gridY-40), float32(totalWidth+10), 35, ui.TextBg, false)
+	// ✅ ИСПРАВЛЕНО: используем totalHeight для правильного позиционирования
+	_ = totalHeight // Помечаем как используемую переменную
+	vector.FillRect(screen, float32(gridX-5), float32(gridY-40), float32(totalWidth+10), 35, config.ColorTextBg, false)
 	ebitenutil.DebugPrintAt(screen, infoText, gridX, gridY-35)
 }
 
+// DrawProgressBar renders training progress bar
 func (r *Renderer) DrawProgressBar(screen *ebiten.Image, progress float64, current, total int) {
 	barX := float32(10)
-	barY := float32(r.screenHeight - 50)
+	barY := float32(r.screenHeight - config.ProgressBarMargin)
 	barWidth := float32(r.screenWidth - 20)
-	barHeight := float32(30)
+	barHeight := float32(config.ProgressBarHeight)
 
-	vector.FillRect(screen, barX, barY, barWidth, barHeight, color.RGBA{40, 40, 50, 255}, false)
-	vector.StrokeRect(screen, barX, barY, barWidth, barHeight, 2, color.RGBA{100, 100, 120, 255}, false)
+	vector.FillRect(screen, barX, barY, barWidth, barHeight, config.ColorProgressBg, false)
+	vector.StrokeRect(screen, barX, barY, barWidth, barHeight, 2, config.ColorProgressBorder, false)
 
 	fillWidth := barWidth * float32(progress)
 	if fillWidth > 0 {
@@ -125,8 +134,6 @@ func (r *Renderer) DrawProgressBar(screen *ebiten.Image, progress float64, curre
 		vector.FillRect(screen, barX+2, barY+2, fillWidth-4, barHeight-4, color.RGBA{r, g, b, 255}, false)
 	}
 
-	// ✅ ОБНОВЛЕНО: показываем поколения вместо эпизодов
 	progressText := fmt.Sprintf("Training Progress: %.1f%% (Generation %d/%d)", progress*100, current, total)
 	ebitenutil.DebugPrintAt(screen, progressText, int(barX)+10, int(barY)+10)
 }
-

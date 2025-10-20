@@ -1,7 +1,11 @@
 package snake
 
-import "math/rand/v2"
+import (
+	"math/rand/v2"
+	"snakes-ml/config"
+)
 
+// Snake represents game field and snake
 type Snake struct {
 	width       int
 	height      int
@@ -17,6 +21,7 @@ type Snake struct {
 	initialSize int
 }
 
+// NewSnake creates new snake instance using config
 func NewSnake(width, height int, wrapAround, dynamicSize bool) *Snake {
 	s := &Snake{
 		width:       width,
@@ -30,6 +35,7 @@ func NewSnake(width, height int, wrapAround, dynamicSize bool) *Snake {
 	return s
 }
 
+// Reset resets game to initial state
 func (s *Snake) Reset() {
 	centerX, centerY := s.width/2, s.height/2
 	s.body = []Point{{X: centerX, Y: centerY}}
@@ -38,13 +44,13 @@ func (s *Snake) Reset() {
 	s.steps = 0
 	s.obstacles = nil
 	s.spawnFood()
-	
-	// ✅ ИСПРАВЛЕНО: меньше начальных препятствий (2-3 вместо 3-5)
-	initialObstacles := 2 + rand.IntN(2)
+
+	// Spawn initial obstacles from config
+	initialObstacles := config.InitialObstaclesMin + rand.IntN(config.InitialObstaclesMax-config.InitialObstaclesMin+1)
 	s.addObstacles(initialObstacles)
 }
 
-// Геттеры
+// Getters
 func (s *Snake) Width() int              { return s.width }
 func (s *Snake) Height() int             { return s.height }
 func (s *Snake) Body() []Point           { return s.body }
@@ -55,6 +61,7 @@ func (s *Snake) Steps() int              { return s.steps }
 func (s *Snake) CurrentDirection() Direction { return s.direction }
 func (s *Snake) Length() int             { return len(s.body) }
 
+// GetOccupancy returns field occupancy percentage (0.0 - 1.0)
 func (s *Snake) GetOccupancy() float64 {
 	totalCells := s.width * s.height
 	if totalCells == 0 {
@@ -63,6 +70,7 @@ func (s *Snake) GetOccupancy() float64 {
 	return float64(len(s.body)) / float64(totalCells)
 }
 
+// spawnFood generates food at random free position
 func (s *Snake) spawnFood() {
 	for attempt := 0; attempt < 1000; attempt++ {
 		s.food = Point{X: rand.IntN(s.width), Y: rand.IntN(s.height)}
@@ -72,19 +80,18 @@ func (s *Snake) spawnFood() {
 	}
 }
 
-// ✅ ИСПРАВЛЕНО: улучшенная логика спавна препятствий
+// addObstacles adds random obstacles using config parameters
 func (s *Snake) addObstacles(count int) {
-	// Безопасная зона вокруг змейки
-	safeRadius := 3
-	
+	safeRadius := config.ObstacleSafeRadius
+
 	for i := 0; i < count; i++ {
-		maxAttempts := 200 // Больше попыток
+		maxAttempts := 200
 		placed := false
-		
+
 		for attempt := 0; attempt < maxAttempts; attempt++ {
 			obs := Point{X: rand.IntN(s.width), Y: rand.IntN(s.height)}
-			
-			// Проверка безопасной зоны вокруг змейки
+
+			// Check safe zone around snake
 			tooCloseToSnake := false
 			for _, segment := range s.body {
 				dx := obs.X - segment.X
@@ -100,59 +107,58 @@ func (s *Snake) addObstacles(count int) {
 					break
 				}
 			}
-			
+
 			if tooCloseToSnake {
 				continue
 			}
-			
-			// Проверка что не на еде
+
+			// Check not on food
 			if s.food.Equal(obs) {
 				continue
 			}
-			
-			// Проверка что клетка свободна
+
+			// Check cell is free
 			if !s.isCellFree(obs) {
 				continue
 			}
-			
-			// ✅ НОВОЕ: проверка что не создается ловушка
+
+			// Check doesn't create trap
 			if s.wouldCreateTrap(obs) {
 				continue
 			}
-			
+
 			s.obstacles = append(s.obstacles, obs)
 			placed = true
 			break
 		}
-		
-		// Если не удалось разместить, прекращаем попытки
+
 		if !placed {
 			break
 		}
 	}
 }
 
-// ✅ НОВОЕ: проверка что препятствие не создает ловушку
+// wouldCreateTrap checks if obstacle would create inescapable trap
 func (s *Snake) wouldCreateTrap(newObs Point) bool {
-	// Проверяем 4 соседние клетки
+	// Check 4 neighboring cells
 	neighbors := []Point{
-		{X: newObs.X, Y: newObs.Y - 1}, // Верх
-		{X: newObs.X + 1, Y: newObs.Y}, // Право
-		{X: newObs.X, Y: newObs.Y + 1}, // Низ
-		{X: newObs.X - 1, Y: newObs.Y}, // Лево
+		{X: newObs.X, Y: newObs.Y - 1}, // Up
+		{X: newObs.X + 1, Y: newObs.Y}, // Right
+		{X: newObs.X, Y: newObs.Y + 1}, // Down
+		{X: newObs.X - 1, Y: newObs.Y}, // Left
 	}
-	
+
 	blockedCount := 0
-	
+
 	for _, neighbor := range neighbors {
-		// Проверяем границы (если нет wrap-around)
+		// Check boundaries (if no wrap-around)
 		if !s.wrapAround {
 			if neighbor.X < 0 || neighbor.X >= s.width || neighbor.Y < 0 || neighbor.Y >= s.height {
 				blockedCount++
 				continue
 			}
 		} else {
-			// Нормализация координат при wrap-around
+			// Normalize coordinates with wrap-around
 			if neighbor.X < 0 {
 				neighbor.X = s.width - 1
 			} else if neighbor.X >= s.width {
@@ -164,8 +170,8 @@ func (s *Snake) wouldCreateTrap(newObs Point) bool {
 				neighbor.Y = 0
 			}
 		}
-		
-		// Проверяем препятствия
+
+		// Check obstacles
 		for _, obs := range s.obstacles {
 			if neighbor.Equal(obs) {
 				blockedCount++
@@ -173,11 +179,12 @@ func (s *Snake) wouldCreateTrap(newObs Point) bool {
 			}
 		}
 	}
-	
-	// Если 3 или 4 стороны заблокированы - это ловушка
+
+	// If 3 or 4 sides blocked - it's a trap
 	return blockedCount >= 3
 }
 
+// isCellFree checks if cell is free
 func (s *Snake) isCellFree(pos Point) bool {
 	for _, segment := range s.body {
 		if pos.Equal(segment) {
@@ -192,6 +199,7 @@ func (s *Snake) isCellFree(pos Point) bool {
 	return true
 }
 
+// Step performs one game step and returns reward and done flag
 func (s *Snake) Step(action int) (float64, bool) {
 	s.steps++
 
@@ -204,6 +212,7 @@ func (s *Snake) Step(action int) (float64, bool) {
 	delta := s.direction.ToVector()
 	newHead := Point{X: head.X + delta.X, Y: head.Y + delta.Y}
 
+	// Wrap-around mode
 	if s.wrapAround {
 		if newHead.X < 0 {
 			newHead.X = s.width - 1
@@ -219,57 +228,68 @@ func (s *Snake) Step(action int) (float64, bool) {
 		}
 	}
 
-	reward := -0.01
+	reward := config.RewardStep
 
+	// Wall collision
 	if !s.wrapAround && (newHead.X < 0 || newHead.X >= s.width || newHead.Y < 0 || newHead.Y >= s.height) {
-		return -10.0, true
+		return config.RewardDeath, true
 	}
 
+	// Self collision
 	for _, segment := range s.body {
 		if newHead.Equal(segment) {
-			return -10.0, true
+			return config.RewardDeath, true
 		}
 	}
 
+	// Obstacle collision
 	for _, obs := range s.obstacles {
 		if newHead.Equal(obs) {
-			return -10.0, true
+			return config.RewardDeath, true
 		}
 	}
 
+	// Add new head
 	s.body = append([]Point{newHead}, s.body...)
 
+	// Check food eaten
 	if newHead.Equal(s.food) {
 		s.score++
-		reward = 10.0
+		reward = config.RewardFood
 		s.spawnFood()
-		
-		if s.dynamicSize && s.GetOccupancy() >= 0.9 && s.width < s.initialSize*3 {
-			s.width += 2
-			s.height += 2
+
+		// Check field expansion using config
+		if s.dynamicSize && s.GetOccupancy() >= config.ExpansionThreshold && s.width < s.initialSize*config.MaxFieldExpansion {
+			s.width += config.ExpansionIncrement
+			s.height += config.ExpansionIncrement
 			s.maxSteps = s.width * s.height * 2
 		}
-		
-		// ✅ ИСПРАВЛЕНО: добавляем препятствия реже (каждые 10 очков вместо каждого)
-		if s.score%10 == 0 {
+
+		// Add obstacles based on config interval
+		if s.score%config.ObstacleAddInterval == 0 {
 			s.addObstacles(1)
 		}
 	} else {
+		// Remove tail
 		s.body = s.body[:len(s.body)-1]
+
+		// Reward for moving toward food
 		oldDist := head.ManhattanDistance(s.food)
 		newDist := newHead.ManhattanDistance(s.food)
 		if newDist < oldDist {
-			reward += 0.1
+			reward += config.RewardMoveToFood
 		}
 	}
 
+	// Timeout
 	if s.steps > s.maxSteps {
-		return -10.0, true
+		return config.RewardDeath, true
 	}
 
 	return reward, false
 }
 
+// GetState returns current state for AI (14 parameters)
 func (s *Snake) GetState() []float64 {
 	head := s.body[0]
 	var dangerStraight, dangerRight, dangerLeft float64
@@ -277,12 +297,14 @@ func (s *Snake) GetState() []float64 {
 	directions := []Direction{Up, Right, Down, Left}
 	currentDir := int(s.direction)
 
+	// Danger straight
 	straightDelta := directions[currentDir].ToVector()
 	straightPos := Point{X: head.X + straightDelta.X, Y: head.Y + straightDelta.Y}
 	if s.isDanger(straightPos) {
 		dangerStraight = 1
 	}
 
+	// Danger right
 	rightDir := (currentDir + 1) % 4
 	rightDelta := directions[rightDir].ToVector()
 	rightPos := Point{X: head.X + rightDelta.X, Y: head.Y + rightDelta.Y}
@@ -290,6 +312,7 @@ func (s *Snake) GetState() []float64 {
 		dangerRight = 1
 	}
 
+	// Danger left
 	leftDir := (currentDir + 3) % 4
 	leftDelta := directions[leftDir].ToVector()
 	leftPos := Point{X: head.X + leftDelta.X, Y: head.Y + leftDelta.Y}
@@ -297,6 +320,7 @@ func (s *Snake) GetState() []float64 {
 		dangerLeft = 1
 	}
 
+	// Food direction
 	var foodUp, foodRight, foodDown, foodLeft float64
 	if s.food.Y < head.Y {
 		foodUp = 1
@@ -311,6 +335,7 @@ func (s *Snake) GetState() []float64 {
 		foodLeft = 1
 	}
 
+	// Current direction
 	var dirUp, dirRight, dirDown, dirLeft float64
 	switch s.direction {
 	case Up:
@@ -323,6 +348,7 @@ func (s *Snake) GetState() []float64 {
 		dirLeft = 1
 	}
 
+	// Normalized distance to food
 	distX := float64(s.food.X-head.X) / float64(s.width)
 	distY := float64(s.food.Y-head.Y) / float64(s.height)
 	occupancy := s.GetOccupancy()
@@ -335,6 +361,7 @@ func (s *Snake) GetState() []float64 {
 	}
 }
 
+// isDanger checks if position is dangerous
 func (s *Snake) isDanger(pos Point) bool {
 	if !s.wrapAround {
 		if pos.X < 0 || pos.X >= s.width || pos.Y < 0 || pos.Y >= s.height {

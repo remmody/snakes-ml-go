@@ -1,5 +1,6 @@
 package game
 
+// State represents game state
 type State int
 
 const (

@@ -5,7 +5,7 @@ import (
 	"sync"
 )
 
-// Experience представляет один опыт для обучения
+// Experience represents single training experience
 type Experience struct {
 	State     []float64
 	Action    int
@@ -14,14 +14,14 @@ type Experience struct {
 	Done      bool
 }
 
-// ReplayBuffer реализует Experience Replay буфер
+// ReplayBuffer implements experience replay buffer
 type ReplayBuffer struct {
 	buffer   []Experience
 	capacity int
 	mu       sync.Mutex
 }
 
-// NewReplayBuffer создает новый буфер опыта
+// NewReplayBuffer creates new replay buffer
 func NewReplayBuffer(capacity int) *ReplayBuffer {
 	return &ReplayBuffer{
 		buffer:   make([]Experience, 0, capacity),
@@ -29,7 +29,7 @@ func NewReplayBuffer(capacity int) *ReplayBuffer {
 	}
 }
 
-// Add добавляет опыт в буфер
+// Add adds experience to buffer (FIFO)
 func (rb *ReplayBuffer) Add(exp Experience) {
 	rb.mu.Lock()
 	defer rb.mu.Unlock()
@@ -37,12 +37,12 @@ func (rb *ReplayBuffer) Add(exp Experience) {
 	if len(rb.buffer) < rb.capacity {
 		rb.buffer = append(rb.buffer, exp)
 	} else {
-		// Удаляем самый старый опыт
+		// Remove oldest experience
 		rb.buffer = append(rb.buffer[1:], exp)
 	}
 }
 
-// Sample возвращает случайную выборку опытов
+// Sample returns random batch of experiences
 func (rb *ReplayBuffer) Sample(batchSize int) []Experience {
 	rb.mu.Lock()
 	defer rb.mu.Unlock()
@@ -52,8 +52,6 @@ func (rb *ReplayBuffer) Sample(batchSize int) []Experience {
 	}
 
 	samples := make([]Experience, batchSize)
-	
-	// ✅ ИСПРАВЛЕНИЕ: используем math/rand/v2
 	indices := rand.Perm(len(rb.buffer))[:batchSize]
 
 	for i, idx := range indices {
@@ -63,21 +61,21 @@ func (rb *ReplayBuffer) Sample(batchSize int) []Experience {
 	return samples
 }
 
-// Size возвращает текущий размер буфера
+// Size returns current buffer size
 func (rb *ReplayBuffer) Size() int {
 	rb.mu.Lock()
 	defer rb.mu.Unlock()
 	return len(rb.buffer)
 }
 
-// Clear очищает буфер
+// Clear empties the buffer
 func (rb *ReplayBuffer) Clear() {
 	rb.mu.Lock()
 	defer rb.mu.Unlock()
 	rb.buffer = make([]Experience, 0, rb.capacity)
 }
 
-// IsFull проверяет заполнен ли буфер
+// IsFull checks if buffer is full
 func (rb *ReplayBuffer) IsFull() bool {
 	rb.mu.Lock()
 	defer rb.mu.Unlock()

@@ -4,15 +4,16 @@ import (
 	"fmt"
 	"time"
 
+	"snakes-ml/config"
 	"snakes-ml/internal/ai"
 	"snakes-ml/internal/snake"
-	"snakes-ml/internal/ui"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
+// Game represents main game structure
 type Game struct {
 	screenWidth     int
 	screenHeight    int
@@ -34,26 +35,28 @@ type Game struct {
 	lastMapSize     string
 }
 
+// NewGame creates new game instance using config
 func NewGame(screenWidth, screenHeight int) *Game {
 	g := &Game{
 		screenWidth:     screenWidth,
 		screenHeight:    screenHeight,
 		state:           StateMenu,
-		maxEpisodes:     150000,
-		windowSize:      100,
-		recentScores:    make([]int, 0, 100),
+		maxEpisodes:     config.MaxEpisodes,
+		windowSize:      config.WindowSize,
+		recentScores:    make([]int, 0, config.WindowSize),
 		trainingMode:    true,
 		autoRestart:     true,
-		speedMultiplier: 1.0,
+		speedMultiplier: config.Speed1x,
 		lastUpdateTime:  time.Now(),
 	}
 
 	g.renderer = NewRenderer(screenWidth, screenHeight)
 
-	config := ai.DefaultConfig()
-	g.agent = ai.NewAgent(14, 4, config)
+	aiConfig := ai.DefaultConfig()
+	g.agent = ai.NewAgent(config.StateSize, config.ActionSize, aiConfig)
 
-	if err := g.agent.LoadModel("snake_ai_model_best.json"); err == nil {
+	// Load existing model if available
+	if err := g.agent.LoadModel(config.ModelBestName); err == nil {
 		fmt.Println("✅ Loaded existing model")
 	} else {
 		fmt.Println("🆕 Created new model")
@@ -62,6 +65,7 @@ func NewGame(screenWidth, screenHeight int) *Game {
 	return g
 }
 
+// Update updates game state
 func (g *Game) Update() error {
 	g.frameCount++
 
@@ -93,23 +97,25 @@ func (g *Game) updateMenu() error {
 }
 
 func (g *Game) updateTraining() error {
+	// Speed control from config
 	if ebiten.IsKeyPressed(ebiten.Key1) {
-		g.speedMultiplier = 1.0
+		g.speedMultiplier = config.Speed1x
 	}
 	if ebiten.IsKeyPressed(ebiten.Key2) {
-		g.speedMultiplier = 5.0
+		g.speedMultiplier = config.Speed5x
 	}
 	if ebiten.IsKeyPressed(ebiten.Key3) {
-		g.speedMultiplier = 10.0
+		g.speedMultiplier = config.Speed10x
 	}
 	if ebiten.IsKeyPressed(ebiten.Key4) {
-		g.speedMultiplier = 50.0
+		g.speedMultiplier = config.Speed50x
 	}
 	if ebiten.IsKeyPressed(ebiten.KeyEscape) {
 		g.state = StateMenu
 		return nil
 	}
 
+	// Training loop
 	for i := 0; i < int(g.speedMultiplier); i++ {
 		if g.snake == nil {
 			g.startNewEpisode()
@@ -122,7 +128,7 @@ func (g *Game) updateTraining() error {
 
 		g.agent.Remember(state, action, reward, nextState, done)
 
-		if g.agent.ReplayBufferSize() >= 64 {
+		if g.agent.ReplayBufferSize() >= config.MinBufferSize {
 			g.agent.Train()
 		}
 
@@ -132,7 +138,7 @@ func (g *Game) updateTraining() error {
 			g.handleEpisodeEnd()
 
 			if g.agent.EpisodeCount() >= g.maxEpisodes {
-				g.agent.SaveModel("snake_ai_model_final.json")
+				g.agent.SaveModel(config.ModelFinalName)
 				fmt.Println("\n✅ Training completed!")
 				g.state = StateMenu
 				return nil
@@ -140,7 +146,8 @@ func (g *Game) updateTraining() error {
 		}
 	}
 
-	if time.Since(g.lastUpdateTime) > time.Second {
+	// Update stats display
+	if time.Since(g.lastUpdateTime) > time.Millisecond*time.Duration(config.StatsUpdateMs) {
 		g.updateStatsText()
 		g.lastUpdateTime = time.Now()
 	}
@@ -154,11 +161,12 @@ func (g *Game) updatePlaying() error {
 		return nil
 	}
 
-	if g.frameCount%5 == 0 {
+	if g.frameCount%config.PlayingSpeed == 0 {
 		if g.snake == nil {
 			g.startNewEpisode()
 		}
 
+		// AI plays without exploration
 		oldEpsilon := g.agent.Epsilon()
 		g.agent.SetEpsilon(0)
 		action := g.agent.SelectAction(g.snake.GetState())
@@ -197,7 +205,12 @@ func (g *Game) startPlaying() {
 }
 
 func (g *Game) startNewEpisode() {
-	g.snake = snake.NewSnake(20, 15, true, true)
+	g.snake = snake.NewSnake(
+		config.InitialFieldWidth,
+		config.InitialFieldHeight,
+		config.WrapAroundEnabled,
+		config.DynamicSizeEnabled,
+	)
 	g.currentScore = 0
 	g.lastMapSize = fmt.Sprintf("%dx%d", g.snake.Width(), g.snake.Height())
 }
@@ -209,21 +222,22 @@ func (g *Game) handleEpisodeEnd() {
 		g.recentScores = g.recentScores[1:]
 	}
 
-	// ✅ ВАЖНО: вызываем EndEpisode у агента
+	// Mark episode end for agent
 	g.agent.EndEpisode()
 
+	// Save best model
 	if score > g.bestScore {
 		g.bestScore = score
-		g.agent.SaveModel("snake_ai_model_best.json")
-		fmt.Printf("🏆 New record: %d (episode %d, generation %d)\n", 
+		g.agent.SaveModel(config.ModelBestName)
+		fmt.Printf("🏆 New record: %d (episode %d, generation %d)\n",
 			score, g.agent.EpisodeCount(), g.agent.Generation())
 	}
 
-	// ✅ ИСПРАВЛЕНО: сохраняем каждые 100 эпизодов (каждое поколение)
-	if g.agent.EpisodeCount()%100 == 0 {
-		filename := fmt.Sprintf("snake_ai_model_gen%d.json", g.agent.Generation())
+	// Save generation checkpoints
+	if g.agent.EpisodeCount()%config.SaveCheckpointFreq == 0 {
+		filename := fmt.Sprintf("%s%d.json", config.ModelGenPrefix, g.agent.Generation())
 		g.agent.SaveModel(filename)
-		fmt.Printf("💾 Generation %d completed. Checkpoint saved: %s\n", 
+		fmt.Printf("💾 Generation %d completed. Checkpoint saved: %s\n",
 			g.agent.Generation(), filename)
 	}
 
@@ -246,12 +260,12 @@ func (g *Game) updateStatsText() {
 		occupancy = g.snake.GetOccupancy() * 100
 	}
 
-	// ✅ ОБНОВЛЕНО: показываем Generation и прогресс внутри поколения
 	g.statsText = fmt.Sprintf(
-		"Gen: %d (%d/100) | Ep: %d/%d | Score: %d | Avg: %.1f | Best: %d\n"+
+		"Gen: %d (%d/%d) | Ep: %d/%d | Score: %d | Avg: %.1f | Best: %d\n"+
 			"ε: %.3f | Buf: %d | Map: %s | Occ: %.0f%% | Obs: %d | x%.0f",
 		g.agent.Generation(),
 		g.agent.GenerationProgress(),
+		config.EpisodesPerGen,
 		g.agent.EpisodeCount(),
 		g.maxEpisodes,
 		g.currentScore,
@@ -266,8 +280,9 @@ func (g *Game) updateStatsText() {
 	)
 }
 
+// Draw renders game
 func (g *Game) Draw(screen *ebiten.Image) {
-	screen.Fill(ui.Background)
+	screen.Fill(config.ColorBackground)
 
 	switch g.state {
 	case StateMenu:
@@ -283,40 +298,46 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 func (g *Game) drawMenu(screen *ebiten.Image) {
 	centerX := g.screenWidth / 2
-	startY := 120
+	startY := config.MenuStartY
 
-	title := "AI SNAKE GAME - Deep Q-Learning"
+	// Title
+	title := config.MenuTitle
 	titleWidth := len(title) * 6
 	ebitenutil.DebugPrintAt(screen, title, centerX-titleWidth/2, startY)
 
-	subtitle := "Self-learning snake powered by neural networks"
+	// Subtitle
+	subtitle := config.MenuSubtitle
 	subtitleWidth := len(subtitle) * 6
 	ebitenutil.DebugPrintAt(screen, subtitle, centerX-subtitleWidth/2, startY+40)
 
-	separator := "================================================"
+	// Separator
+	separator := config.MenuSeparator
 	sepWidth := len(separator) * 6
 	ebitenutil.DebugPrintAt(screen, separator, centerX-sepWidth/2, startY+90)
 
+	// Buttons
 	buttonX := centerX - 150
-	ebitenutil.DebugPrintAt(screen, "[SPACE] - Start Training", buttonX, startY+130)
-	ebitenutil.DebugPrintAt(screen, "[P]     - Play with Trained AI", buttonX, startY+160)
-	ebitenutil.DebugPrintAt(screen, "[Q]     - Quit", buttonX, startY+190)
+	ebitenutil.DebugPrintAt(screen, config.MenuBtnTraining, buttonX, startY+130)
+	ebitenutil.DebugPrintAt(screen, config.MenuBtnPlay, buttonX, startY+160)
+	ebitenutil.DebugPrintAt(screen, config.MenuBtnQuit, buttonX, startY+190)
 
 	ebitenutil.DebugPrintAt(screen, separator, centerX-sepWidth/2, startY+230)
 
-	// ✅ ОБНОВЛЕНО: показываем статистику с поколениями
+	// Statistics
 	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Best Score: %d", g.bestScore), buttonX, startY+270)
 	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Episodes Trained: %d", g.agent.EpisodeCount()), buttonX, startY+300)
 	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Generations: %d", g.agent.Generation()), buttonX, startY+330)
 
-	ebitenutil.DebugPrintAt(screen, "Features:", buttonX, startY+380)
-	ebitenutil.DebugPrintAt(screen, "  • Random yellow obstacles", buttonX, startY+410)
-	ebitenutil.DebugPrintAt(screen, "  • Auto map expansion at 90% occupancy", buttonX, startY+440)
-	ebitenutil.DebugPrintAt(screen, "  • Wrap-around boundaries", buttonX, startY+470)
-	ebitenutil.DebugPrintAt(screen, "  • Deep Q-Learning with Experience Replay", buttonX, startY+500)
-	ebitenutil.DebugPrintAt(screen, "  • 100 episodes = 1 generation", buttonX, startY+530)
+	// Features
+	ebitenutil.DebugPrintAt(screen, config.MenuFeatures, buttonX, startY+380)
+	ebitenutil.DebugPrintAt(screen, config.MenuFeature1, buttonX, startY+410)
+	ebitenutil.DebugPrintAt(screen, config.MenuFeature2, buttonX, startY+440)
+	ebitenutil.DebugPrintAt(screen, config.MenuFeature3, buttonX, startY+470)
+	ebitenutil.DebugPrintAt(screen, config.MenuFeature4, buttonX, startY+500)
+	ebitenutil.DebugPrintAt(screen, config.MenuFeature5, buttonX, startY+530)
 
-	info := "Controls: [1] 1x [2] 5x [3] 10x [4] 50x speed | [ESC] Menu"
+	// Controls
+	info := config.MenuControls
 	infoWidth := len(info) * 6
 	ebitenutil.DebugPrintAt(screen, info, centerX-infoWidth/2, g.screenHeight-30)
 }
@@ -326,17 +347,17 @@ func (g *Game) drawTraining(screen *ebiten.Image) {
 		g.renderer.DrawSnake(screen, g.snake)
 	}
 
+	// Stats box
 	if g.statsText != "" {
-		textWidth := float32(680)
-		vector.FillRect(screen, 10, 10, textWidth, 45, ui.TextBg, false)
+		vector.FillRect(screen, 10, 10, float32(config.StatsBoxWidth), float32(config.StatsBoxHeight), config.ColorTextBg, false)
 		ebitenutil.DebugPrintAt(screen, g.statsText, 15, 15)
 	}
 
-	// ✅ ОБНОВЛЕНО: прогресс-бар теперь показывает поколения
-	totalGenerations := g.maxEpisodes / 100
+	// Progress bar
+	totalGenerations := g.maxEpisodes / config.EpisodesPerGen
 	currentGen := g.agent.Generation()
 	progress := float64(currentGen) / float64(totalGenerations)
-	
+
 	g.renderer.DrawProgressBar(screen, progress, currentGen, totalGenerations)
 }
 
@@ -347,7 +368,7 @@ func (g *Game) drawPlaying(screen *ebiten.Image) {
 
 	scoreText := fmt.Sprintf("Score: %d | Best: %d", g.currentScore, g.bestScore)
 	textWidth := float32(len(scoreText) * 6)
-	vector.FillRect(screen, 10, 10, textWidth+20, 35, ui.TextBg, false)
+	vector.FillRect(screen, 10, 10, textWidth+20, 35, config.ColorTextBg, false)
 	ebitenutil.DebugPrintAt(screen, scoreText, 15, 15)
 }
 
@@ -356,14 +377,17 @@ func (g *Game) drawGameOver(screen *ebiten.Image) {
 		g.renderer.DrawSnake(screen, g.snake)
 	}
 
-	vector.FillRect(screen, 0, 0, float32(g.screenWidth), float32(g.screenHeight), ui.TextBg, false)
+	// Dimming overlay
+	vector.FillRect(screen, 0, 0, float32(g.screenWidth), float32(g.screenHeight), config.ColorTextBg, false)
 
-	boxW, boxH := float32(360), float32(240)
+	// Game over box
+	boxW := float32(config.GameOverBoxWidth)
+	boxH := float32(config.GameOverBoxHeight)
 	boxX := float32(g.screenWidth)/2 - boxW/2
 	boxY := float32(g.screenHeight)/2 - boxH/2
 
-	vector.FillRect(screen, boxX, boxY, boxW, boxH, ui.Background, false)
-	vector.StrokeRect(screen, boxX, boxY, boxW, boxH, 3, ui.SnakeHead, false)
+	vector.FillRect(screen, boxX, boxY, boxW, boxH, config.ColorBackground, false)
+	vector.StrokeRect(screen, boxX, boxY, boxW, boxH, 3, config.ColorSnakeHead, false)
 
 	centerX := g.screenWidth / 2
 	centerY := g.screenHeight / 2
@@ -375,6 +399,7 @@ func (g *Game) drawGameOver(screen *ebiten.Image) {
 	ebitenutil.DebugPrintAt(screen, "[ESC] Main Menu", centerX-65, centerY+60)
 }
 
+// Layout returns screen dimensions
 func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
 	return g.screenWidth, g.screenHeight
 }

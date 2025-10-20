@@ -1,5 +1,8 @@
 package ai
 
+import "snakes-ml/config"
+
+// Config holds DQN agent configuration
 type Config struct {
 	LearningRate float64
 	BufferSize   int
@@ -11,15 +14,16 @@ type Config struct {
 	UpdateFreq   int
 }
 
+// DefaultConfig returns default DQN configuration from central config
 func DefaultConfig() Config {
 	return Config{
-		LearningRate: 0.001,
-		BufferSize:   1000000,
-		EpsilonStart: 1.0,
-		EpsilonMin:   0.01,
-		EpsilonDecay: 0.995,
-		Gamma:        0.95,
-		BatchSize:    64,
-		UpdateFreq:   100,
+		LearningRate: config.LearningRate,
+		BufferSize:   config.BufferSize,
+		EpsilonStart: config.EpsilonStart,
+		EpsilonMin:   config.EpsilonMin,
+		EpsilonDecay: config.EpsilonDecay,
+		Gamma:        config.Gamma,
+		BatchSize:    config.BatchSize,
+		UpdateFreq:   config.UpdateFreq,
 	}
 }
