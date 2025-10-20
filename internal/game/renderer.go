@@ -108,7 +108,7 @@ func (r *Renderer) DrawSnake(screen *ebiten.Image, s *snake.Snake) {
 	ebitenutil.DebugPrintAt(screen, infoText, gridX, gridY-35)
 }
 
-func (r *Renderer) DrawProgressBar(screen *ebiten.Image, progress float64, episode, maxEpisodes int) {
+func (r *Renderer) DrawProgressBar(screen *ebiten.Image, progress float64, current, total int) {
 	barX := float32(10)
 	barY := float32(r.screenHeight - 50)
 	barWidth := float32(r.screenWidth - 20)
@@ -125,6 +125,8 @@ func (r *Renderer) DrawProgressBar(screen *ebiten.Image, progress float64, episo
 		vector.FillRect(screen, barX+2, barY+2, fillWidth-4, barHeight-4, color.RGBA{r, g, b, 255}, false)
 	}
 
-	progressText := fmt.Sprintf("Training Progress: %.1f%% (%d/%d episodes)", progress*100, episode, maxEpisodes)
+	// ✅ ОБНОВЛЕНО: показываем поколения вместо эпизодов
+	progressText := fmt.Sprintf("Training Progress: %.1f%% (Generation %d/%d)", progress*100, current, total)
 	ebitenutil.DebugPrintAt(screen, progressText, int(barX)+10, int(barY)+10)
 }
+
