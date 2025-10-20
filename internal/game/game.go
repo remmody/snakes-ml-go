@@ -33,6 +33,7 @@ type Game struct {
 	statsText       string
 	lastUpdateTime  time.Time
 	lastMapSize     string
+	avgReward       float64 // ✅ НОВОЕ: средняя награда
 }
 
 // NewGame creates new game instance using config
@@ -55,7 +56,6 @@ func NewGame(screenWidth, screenHeight int) *Game {
 	aiConfig := ai.DefaultConfig()
 	g.agent = ai.NewAgent(config.StateSize, config.ActionSize, aiConfig)
 
-	// Load existing model if available
 	if err := g.agent.LoadModel(config.ModelBestName); err == nil {
 		fmt.Println("✅ Loaded existing model")
 	} else {
@@ -65,7 +65,6 @@ func NewGame(screenWidth, screenHeight int) *Game {
 	return g
 }
 
-// Update updates game state
 func (g *Game) Update() error {
 	g.frameCount++
 
@@ -97,7 +96,6 @@ func (g *Game) updateMenu() error {
 }
 
 func (g *Game) updateTraining() error {
-	// Speed control from config
 	if ebiten.IsKeyPressed(ebiten.Key1) {
 		g.speedMultiplier = config.Speed1x
 	}
@@ -115,7 +113,6 @@ func (g *Game) updateTraining() error {
 		return nil
 	}
 
-	// Training loop
 	for i := 0; i < int(g.speedMultiplier); i++ {
 		if g.snake == nil {
 			g.startNewEpisode()
@@ -146,7 +143,6 @@ func (g *Game) updateTraining() error {
 		}
 	}
 
-	// Update stats display
 	if time.Since(g.lastUpdateTime) > time.Millisecond*time.Duration(config.StatsUpdateMs) {
 		g.updateStatsText()
 		g.lastUpdateTime = time.Now()
@@ -166,7 +162,6 @@ func (g *Game) updatePlaying() error {
 			g.startNewEpisode()
 		}
 
-		// AI plays without exploration
 		oldEpsilon := g.agent.Epsilon()
 		g.agent.SetEpsilon(0)
 		action := g.agent.SelectAction(g.snake.GetState())
@@ -222,10 +217,8 @@ func (g *Game) handleEpisodeEnd() {
 		g.recentScores = g.recentScores[1:]
 	}
 
-	// Mark episode end for agent
 	g.agent.EndEpisode()
 
-	// Save best model
 	if score > g.bestScore {
 		g.bestScore = score
 		g.agent.SaveModel(config.ModelBestName)
@@ -233,7 +226,6 @@ func (g *Game) handleEpisodeEnd() {
 			score, g.agent.EpisodeCount(), g.agent.Generation())
 	}
 
-	// Save generation checkpoints
 	if g.agent.EpisodeCount()%config.SaveCheckpointFreq == 0 {
 		filename := fmt.Sprintf("%s%d.json", config.ModelGenPrefix, g.agent.Generation())
 		g.agent.SaveModel(filename)
@@ -260,9 +252,12 @@ func (g *Game) updateStatsText() {
 		occupancy = g.snake.GetOccupancy() * 100
 	}
 
+	// ✅ ОБНОВЛЕНО: добавлена статистика loss
+	g.avgReward = g.agent.GetAverageReward(100)
+
 	g.statsText = fmt.Sprintf(
 		"Gen: %d (%d/%d) | Ep: %d/%d | Score: %d | Avg: %.1f | Best: %d\n"+
-			"ε: %.3f | Buf: %d | Map: %s | Occ: %.0f%% | Obs: %d | x%.0f",
+			"ε: %.4f | Loss: %.4f | Buf: %d | Map: %s | Occ: %.0f%% | x%.0f",
 		g.agent.Generation(),
 		g.agent.GenerationProgress(),
 		config.EpisodesPerGen,
@@ -272,15 +267,14 @@ func (g *Game) updateStatsText() {
 		avgScore,
 		g.bestScore,
 		g.agent.Epsilon(),
+		g.agent.LastLoss(),
 		g.agent.ReplayBufferSize(),
 		g.lastMapSize,
 		occupancy,
-		len(g.snake.Obstacles()),
 		g.speedMultiplier,
 	)
 }
 
-// Draw renders game
 func (g *Game) Draw(screen *ebiten.Image) {
 	screen.Fill(config.ColorBackground)
 
@@ -300,22 +294,18 @@ func (g *Game) drawMenu(screen *ebiten.Image) {
 	centerX := g.screenWidth / 2
 	startY := config.MenuStartY
 
-	// Title
 	title := config.MenuTitle
 	titleWidth := len(title) * 6
 	ebitenutil.DebugPrintAt(screen, title, centerX-titleWidth/2, startY)
 
-	// Subtitle
 	subtitle := config.MenuSubtitle
 	subtitleWidth := len(subtitle) * 6
 	ebitenutil.DebugPrintAt(screen, subtitle, centerX-subtitleWidth/2, startY+40)
 
-	// Separator
 	separator := config.MenuSeparator
 	sepWidth := len(separator) * 6
 	ebitenutil.DebugPrintAt(screen, separator, centerX-sepWidth/2, startY+90)
 
-	// Buttons
 	buttonX := centerX - 150
 	ebitenutil.DebugPrintAt(screen, config.MenuBtnTraining, buttonX, startY+130)
 	ebitenutil.DebugPrintAt(screen, config.MenuBtnPlay, buttonX, startY+160)
@@ -323,12 +313,10 @@ func (g *Game) drawMenu(screen *ebiten.Image) {
 
 	ebitenutil.DebugPrintAt(screen, separator, centerX-sepWidth/2, startY+230)
 
-	// Statistics
 	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Best Score: %d", g.bestScore), buttonX, startY+270)
 	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Episodes Trained: %d", g.agent.EpisodeCount()), buttonX, startY+300)
 	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Generations: %d", g.agent.Generation()), buttonX, startY+330)
 
-	// Features
 	ebitenutil.DebugPrintAt(screen, config.MenuFeatures, buttonX, startY+380)
 	ebitenutil.DebugPrintAt(screen, config.MenuFeature1, buttonX, startY+410)
 	ebitenutil.DebugPrintAt(screen, config.MenuFeature2, buttonX, startY+440)
@@ -336,7 +324,6 @@ func (g *Game) drawMenu(screen *ebiten.Image) {
 	ebitenutil.DebugPrintAt(screen, config.MenuFeature4, buttonX, startY+500)
 	ebitenutil.DebugPrintAt(screen, config.MenuFeature5, buttonX, startY+530)
 
-	// Controls
 	info := config.MenuControls
 	infoWidth := len(info) * 6
 	ebitenutil.DebugPrintAt(screen, info, centerX-infoWidth/2, g.screenHeight-30)
@@ -347,13 +334,11 @@ func (g *Game) drawTraining(screen *ebiten.Image) {
 		g.renderer.DrawSnake(screen, g.snake)
 	}
 
-	// Stats box
 	if g.statsText != "" {
 		vector.FillRect(screen, 10, 10, float32(config.StatsBoxWidth), float32(config.StatsBoxHeight), config.ColorTextBg, false)
 		ebitenutil.DebugPrintAt(screen, g.statsText, 15, 15)
 	}
 
-	// Progress bar
 	totalGenerations := g.maxEpisodes / config.EpisodesPerGen
 	currentGen := g.agent.Generation()
 	progress := float64(currentGen) / float64(totalGenerations)
@@ -377,10 +362,8 @@ func (g *Game) drawGameOver(screen *ebiten.Image) {
 		g.renderer.DrawSnake(screen, g.snake)
 	}
 
-	// Dimming overlay
 	vector.FillRect(screen, 0, 0, float32(g.screenWidth), float32(g.screenHeight), config.ColorTextBg, false)
 
-	// Game over box
 	boxW := float32(config.GameOverBoxWidth)
 	boxH := float32(config.GameOverBoxHeight)
 	boxX := float32(g.screenWidth)/2 - boxW/2
@@ -399,7 +382,6 @@ func (g *Game) drawGameOver(screen *ebiten.Image) {
 	ebitenutil.DebugPrintAt(screen, "[ESC] Main Menu", centerX-65, centerY+60)
 }
 
-// Layout returns screen dimensions
 func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
 	return g.screenWidth, g.screenHeight
 }

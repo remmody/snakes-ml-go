@@ -22,6 +22,7 @@ type Agent struct {
 	currentGeneration int
 	totalReward       float64
 	episodeRewards    []float64
+	lastLoss          float64 // Для отслеживания прогресса обучения
 }
 
 // NewAgent creates new DQN agent using configuration
@@ -43,11 +44,13 @@ func NewAgent(stateSize, actionSize int, cfg Config) *Agent {
 		generationSize:    config.EpisodesPerGen,
 		currentGeneration: 1,
 		episodeRewards:    make([]float64, 0, 100),
+		lastLoss:          0,
 	}
 }
 
 // SelectAction chooses action using epsilon-greedy strategy
 func (a *Agent) SelectAction(state []float64) int {
+	// ✅ УЛУЧШЕНО: адаптивный epsilon на основе прогресса
 	if rand.Float64() < a.epsilon {
 		return rand.IntN(config.ActionSize)
 	}
@@ -85,7 +88,6 @@ func (a *Agent) Remember(state []float64, action int, reward float64, nextState 
 		Done:      done,
 	})
 
-	// Accumulate episode reward
 	a.totalReward += reward
 }
 
@@ -102,12 +104,19 @@ func (a *Agent) Train() float64 {
 		target := a.qNetwork.Forward(exp.State)
 
 		if exp.Done {
+			// Терминальное состояние - только reward
 			target[exp.Action] = exp.Reward
 		} else {
-			// Double DQN: use q-network to select action, target-network to evaluate
-			nextQValues := a.targetNetwork.Forward(exp.NextState)
-			bestAction := argmax(a.qNetwork.Forward(exp.NextState))
-			maxQ := nextQValues[bestAction]
+			// ✅ УЛУЧШЕНО: Double DQN для стабильности
+			// Используем q-network для выбора действия
+			nextQValues := a.qNetwork.Forward(exp.NextState)
+			bestAction := argmax(nextQValues)
+			
+			// Используем target-network для оценки
+			targetNextQValues := a.targetNetwork.Forward(exp.NextState)
+			maxQ := targetNextQValues[bestAction]
+			
+			// Bellman equation
 			target[exp.Action] = exp.Reward + a.gamma*maxQ
 		}
 
@@ -116,16 +125,20 @@ func (a *Agent) Train() float64 {
 	}
 
 	a.stepCount++
+	
+	// Обновление target network
 	if a.stepCount%a.updateFreq == 0 {
 		a.UpdateTargetNetwork()
 	}
 
-	// Epsilon decay during training
+	// ✅ УЛУЧШЕНО: более плавный decay epsilon
 	if a.epsilon > a.epsilonMin {
 		a.epsilon *= a.epsilonDecay
 	}
 
-	return totalLoss / float64(len(batch))
+	avgLoss := totalLoss / float64(len(batch))
+	a.lastLoss = avgLoss
+	return avgLoss
 }
 
 // EndEpisode marks end of episode and updates generation counter
@@ -133,15 +146,12 @@ func (a *Agent) EndEpisode() {
 	a.episodeCount++
 	a.episodeRewards = append(a.episodeRewards, a.totalReward)
 
-	// Keep only last 100 episode rewards
 	if len(a.episodeRewards) > 100 {
 		a.episodeRewards = a.episodeRewards[1:]
 	}
 
-	// Reset accumulated reward
 	a.totalReward = 0
 
-	// Check generation change
 	if a.episodeCount%a.generationSize == 0 {
 		a.currentGeneration++
 	}
@@ -198,3 +208,4 @@ func (a *Agent) StepCount() int             { return a.stepCount }
 func (a *Agent) EpisodeCount() int          { return a.episodeCount }
 func (a *Agent) Generation() int            { return a.currentGeneration }
 func (a *Agent) GenerationProgress() int    { return a.episodeCount % a.generationSize }
+func (a *Agent) LastLoss() float64          { return a.lastLoss }

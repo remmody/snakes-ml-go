@@ -12,13 +12,11 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
-// Renderer handles game rendering
 type Renderer struct {
 	screenWidth  int
 	screenHeight int
 }
 
-// NewRenderer creates new renderer
 func NewRenderer(width, height int) *Renderer {
 	return &Renderer{
 		screenWidth:  width,
@@ -26,13 +24,11 @@ func NewRenderer(width, height int) *Renderer {
 	}
 }
 
-// DrawSnake renders snake and game field
 func (r *Renderer) DrawSnake(screen *ebiten.Image, s *snake.Snake) {
 	gridX := config.GridStartX
 	gridY := config.GridStartY
 	cellSize := config.CellSizeInit
 
-	// Calculate adaptive cell size
 	maxWidth := r.screenWidth - gridX*2
 	maxHeight := r.screenHeight - gridY - config.GridPadding
 
@@ -53,11 +49,9 @@ func (r *Renderer) DrawSnake(screen *ebiten.Image, s *snake.Snake) {
 	}
 
 	totalWidth := s.Width() * cellSize
-	// ✅ ИСПРАВЛЕНО: используем totalHeight
 	totalHeight := s.Height() * cellSize
 	gridX = (r.screenWidth - totalWidth) / 2
 
-	// Draw grid
 	for y := 0; y < s.Height(); y++ {
 		for x := 0; x < s.Width(); x++ {
 			posX := float32(gridX + x*cellSize)
@@ -66,7 +60,6 @@ func (r *Renderer) DrawSnake(screen *ebiten.Image, s *snake.Snake) {
 		}
 	}
 
-	// Draw obstacles (yellow)
 	for _, obs := range s.Obstacles() {
 		posX := float32(gridX + obs.X*cellSize)
 		posY := float32(gridY + obs.Y*cellSize)
@@ -74,14 +67,12 @@ func (r *Renderer) DrawSnake(screen *ebiten.Image, s *snake.Snake) {
 		vector.StrokeRect(screen, posX, posY, float32(cellSize), float32(cellSize), 2, config.ColorObstacleBorder, false)
 	}
 
-	// Draw food (red)
 	food := s.Food()
 	posX := float32(gridX + food.X*cellSize)
 	posY := float32(gridY + food.Y*cellSize)
 	vector.FillRect(screen, posX, posY, float32(cellSize), float32(cellSize), config.ColorFood, false)
 	vector.StrokeRect(screen, posX, posY, float32(cellSize), float32(cellSize), 2, config.ColorFoodBorder, false)
 
-	// Draw snake
 	for i, segment := range s.Body() {
 		posX := float32(gridX + segment.X*cellSize)
 		posY := float32(gridY + segment.Y*cellSize)
@@ -91,7 +82,6 @@ func (r *Renderer) DrawSnake(screen *ebiten.Image, s *snake.Snake) {
 			col = config.ColorSnakeHead
 		} else {
 			intensity := uint8(200 - i*2)
-			// ✅ ИСПРАВЛЕНО: правильное сравнение uint8 с uint8
 			if intensity < config.ColorSnakeBodyMin {
 				intensity = config.ColorSnakeBodyMin
 			}
@@ -105,18 +95,15 @@ func (r *Renderer) DrawSnake(screen *ebiten.Image, s *snake.Snake) {
 		}
 	}
 
-	// Draw info
 	occupancy := s.GetOccupancy() * 100
 	infoText := fmt.Sprintf("Length: %d | Steps: %d | Map: %dx%d | Occupancy: %.1f%% | Obstacles: %d",
 		s.Length(), s.Steps(), s.Width(), s.Height(), occupancy, len(s.Obstacles()))
 
-	// ✅ ИСПРАВЛЕНО: используем totalHeight для правильного позиционирования
-	_ = totalHeight // Помечаем как используемую переменную
+	_ = totalHeight
 	vector.FillRect(screen, float32(gridX-5), float32(gridY-40), float32(totalWidth+10), 35, config.ColorTextBg, false)
 	ebitenutil.DebugPrintAt(screen, infoText, gridX, gridY-35)
 }
 
-// DrawProgressBar renders training progress bar
 func (r *Renderer) DrawProgressBar(screen *ebiten.Image, progress float64, current, total int) {
 	barX := float32(10)
 	barY := float32(r.screenHeight - config.ProgressBarMargin)
