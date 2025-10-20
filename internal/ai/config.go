@@ -14,7 +14,7 @@ type Config struct {
 func DefaultConfig() Config {
 	return Config{
 		LearningRate: 0.001,
-		BufferSize:   50000,
+		BufferSize:   1000000,
 		EpsilonStart: 1.0,
 		EpsilonMin:   0.01,
 		EpsilonDecay: 0.995,

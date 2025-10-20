@@ -43,7 +43,7 @@ func NewGame(screenWidth, screenHeight int) *Game {
 		state:           StateMenu,
 		generation:      1,
 		episode:         1,
-		maxEpisodes:     5000,
+		maxEpisodes:     1000000,
 		windowSize:      100,
 		recentScores:    make([]int, 0, 100),
 		trainingMode:    true,
@@ -248,16 +248,12 @@ func (g *Game) updateStatsText() {
 	}
 
 	g.statsText = fmt.Sprintf(
-		"Generation: %d | Episode: %d/%d\n"+
-			"Score: %d | Avg: %.2f | Best: %d\n"+
-			"Epsilon: %.4f | Buffer: %d\n"+
-			"Map: %s | Occupancy: %.1f%%\n"+
-			"Obstacles: %d | Speed: %.0fx",
+		"Gen: %d | Ep: %d/%d | Score: %d | Avg: %.1f | Best: %d\n"+
+			"Epsilon: %.3f | Buffer: %d | Map: %s | Occ: %.0f%% | Obs: %d | x%.0f",
 		g.generation, g.episode, g.maxEpisodes,
 		g.currentScore, avgScore, g.bestScore,
 		g.agent.Epsilon(), g.agent.ReplayBufferSize(),
-		g.lastMapSize, occupancy,
-		len(g.snake.Obstacles()), g.speedMultiplier,
+		g.lastMapSize, occupancy, len(g.snake.Obstacles()), g.speedMultiplier,
 	)
 }
 
@@ -277,41 +273,46 @@ func (g *Game) Draw(screen *ebiten.Image) {
 }
 
 func (g *Game) drawMenu(screen *ebiten.Image) {
-	// ✅ Адаптировано под 1280x720
+	// ✅ ИСПРАВЛЕНО: центрирование меню
+	centerX := g.screenWidth / 2
+	startY := 120
+
 	title := "AI SNAKE GAME - Deep Q-Learning"
-	ebitenutil.DebugPrintAt(screen, title, g.screenWidth/2-200, 100)
+	titleWidth := len(title) * 6
+	ebitenutil.DebugPrintAt(screen, title, centerX-titleWidth/2, startY)
 
 	subtitle := "Self-learning snake powered by neural networks"
-	ebitenutil.DebugPrintAt(screen, subtitle, g.screenWidth/2-220, 140)
+	subtitleWidth := len(subtitle) * 6
+	ebitenutil.DebugPrintAt(screen, subtitle, centerX-subtitleWidth/2, startY+40)
 
-	instructions := []string{
-		"",
-		"═════════════════════════════════════════════════",
-		"",
-		"[SPACE] - Start Training",
-		"[P]     - Play with Trained AI",
-		"[Q]     - Quit",
-		"",
-		"═════════════════════════════════════════════════",
-		"",
-		fmt.Sprintf("📊 Best Score: %d", g.bestScore),
-		fmt.Sprintf("🎓 Episodes Trained: %d", g.episode-1),
-		"",
-		"Features:",
-		"• Random yellow obstacles",
-		"• Auto map expansion at 90% occupancy",
-		"• Wrap-around boundaries",
-		"• Deep Q-Learning with Experience Replay",
-	}
+	// Разделитель
+	separator := "================================================"
+	sepWidth := len(separator) * 6
+	ebitenutil.DebugPrintAt(screen, separator, centerX-sepWidth/2, startY+90)
 
-	y := 200
-	for _, line := range instructions {
-		ebitenutil.DebugPrintAt(screen, line, g.screenWidth/2-250, y)
-		y += 30
-	}
+	// Кнопки (выровнены по левому краю от центра)
+	buttonX := centerX - 150
+	ebitenutil.DebugPrintAt(screen, "[SPACE] - Start Training", buttonX, startY+130)
+	ebitenutil.DebugPrintAt(screen, "[P]     - Play with Trained AI", buttonX, startY+160)
+	ebitenutil.DebugPrintAt(screen, "[Q]     - Quit", buttonX, startY+190)
 
+	ebitenutil.DebugPrintAt(screen, separator, centerX-sepWidth/2, startY+230)
+
+	// Статистика
+	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Best Score: %d", g.bestScore), buttonX, startY+270)
+	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Episodes Trained: %d", g.episode-1), buttonX, startY+300)
+
+	// Особенности
+	ebitenutil.DebugPrintAt(screen, "Features:", buttonX, startY+350)
+	ebitenutil.DebugPrintAt(screen, "  • Random yellow obstacles", buttonX, startY+380)
+	ebitenutil.DebugPrintAt(screen, "  • Auto map expansion at 90% occupancy", buttonX, startY+410)
+	ebitenutil.DebugPrintAt(screen, "  • Wrap-around boundaries", buttonX, startY+440)
+	ebitenutil.DebugPrintAt(screen, "  • Deep Q-Learning with Experience Replay", buttonX, startY+470)
+
+	// Управление внизу
 	info := "Controls: [1] 1x [2] 5x [3] 10x [4] 50x speed | [ESC] Menu"
-	ebitenutil.DebugPrintAt(screen, info, 30, g.screenHeight-40)
+	infoWidth := len(info) * 6
+	ebitenutil.DebugPrintAt(screen, info, centerX-infoWidth/2, g.screenHeight-30)
 }
 
 func (g *Game) drawTraining(screen *ebiten.Image) {
@@ -319,9 +320,14 @@ func (g *Game) drawTraining(screen *ebiten.Image) {
 		g.renderer.DrawSnake(screen, g.snake)
 	}
 
+	// ✅ ИСПРАВЛЕНО: компактный фон статистики
 	if g.statsText != "" {
-		vector.FillRect(screen, 5, 5, 450, 110, ui.TextBg, false)
-		ebitenutil.DebugPrintAt(screen, g.statsText, 10, 10)
+		textWidth := float32(len(g.statsText) * 4)
+		if textWidth < 600 {
+			textWidth = 600
+		}
+		vector.FillRect(screen, 10, 10, textWidth, 45, ui.TextBg, false)
+		ebitenutil.DebugPrintAt(screen, g.statsText, 15, 15)
 	}
 
 	g.renderer.DrawProgressBar(screen, float64(g.episode)/float64(g.maxEpisodes), g.episode, g.maxEpisodes)
@@ -332,9 +338,11 @@ func (g *Game) drawPlaying(screen *ebiten.Image) {
 		g.renderer.DrawSnake(screen, g.snake)
 	}
 
-	vector.FillRect(screen, 5, 5, 300, 30, ui.TextBg, false)
+	// ✅ ИСПРАВЛЕНО: компактная статистика
 	scoreText := fmt.Sprintf("Score: %d | Best: %d", g.currentScore, g.bestScore)
-	ebitenutil.DebugPrintAt(screen, scoreText, 10, 10)
+	textWidth := float32(len(scoreText) * 6)
+	vector.FillRect(screen, 10, 10, textWidth+20, 35, ui.TextBg, false)
+	ebitenutil.DebugPrintAt(screen, scoreText, 15, 15)
 }
 
 func (g *Game) drawGameOver(screen *ebiten.Image) {
@@ -342,18 +350,25 @@ func (g *Game) drawGameOver(screen *ebiten.Image) {
 		g.renderer.DrawSnake(screen, g.snake)
 	}
 
+	// Затемнение
 	vector.FillRect(screen, 0, 0, float32(g.screenWidth), float32(g.screenHeight), ui.TextBg, false)
 
-	boxX := float32(g.screenWidth/2 - 180)
-	boxY := float32(g.screenHeight/2 - 120)
-	vector.FillRect(screen, boxX, boxY, 360, 240, ui.Background, false)
-	vector.StrokeRect(screen, boxX, boxY, 360, 240, 3, ui.SnakeHead, false)
+	// Окно Game Over
+	boxW, boxH := float32(360), float32(240)
+	boxX := float32(g.screenWidth)/2 - boxW/2
+	boxY := float32(g.screenHeight)/2 - boxH/2
 
-	ebitenutil.DebugPrintAt(screen, "GAME OVER", g.screenWidth/2-50, g.screenHeight/2-80)
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Score: %d", g.currentScore), g.screenWidth/2-40, g.screenHeight/2-40)
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Best: %d", g.bestScore), g.screenWidth/2-35, g.screenHeight/2-10)
-	ebitenutil.DebugPrintAt(screen, "[SPACE] Play Again", g.screenWidth/2-75, g.screenHeight/2+30)
-	ebitenutil.DebugPrintAt(screen, "[ESC] Main Menu", g.screenWidth/2-65, g.screenHeight/2+60)
+	vector.FillRect(screen, boxX, boxY, boxW, boxH, ui.Background, false)
+	vector.StrokeRect(screen, boxX, boxY, boxW, boxH, 3, ui.SnakeHead, false)
+
+	centerX := g.screenWidth / 2
+	centerY := g.screenHeight / 2
+
+	ebitenutil.DebugPrintAt(screen, "GAME OVER", centerX-50, centerY-80)
+	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Score: %d", g.currentScore), centerX-40, centerY-40)
+	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Best: %d", g.bestScore), centerX-35, centerY-10)
+	ebitenutil.DebugPrintAt(screen, "[SPACE] Play Again", centerX-75, centerY+30)
+	ebitenutil.DebugPrintAt(screen, "[ESC] Main Menu", centerX-65, centerY+60)
 }
 
 func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
